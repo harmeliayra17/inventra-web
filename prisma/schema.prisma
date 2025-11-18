@@ -1,0 +1,190 @@
+// =============================================================
+// BAGIAN 1: KONFIGURASI (WAJIB DI PALING ATAS)
+// =============================================================
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// =============================================================
+// BAGIAN 2: MODEL AUTENTIKASI (Dari Fase 2, TAPI SUDAH DI-UPDATE)
+// =============================================================
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  username      String    @unique
+  password      String
+  // "ADMIN" (Owner) atau "STAFF" (Kasir)
+  role          String    @default("STAFF")
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+
+  // --- Relasi BARU ---
+  // Kasir/User ditugaskan ke Cabang mana? (Admin bisa null/global)
+  cabangId      String?
+  cabang        Cabang?   @relation(fields: [cabangId], references: [id])
+  
+  // Satu User (Kasir) bisa membuat banyak Transaksi
+  transactions  Transaction[]
+
+  // Relasi standar NextAuth
+  accounts      Account[]
+  sessions      Session[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+  @@unique([identifier, token])
+}
+
+// =============================================================
+// BAGIAN 3: MODEL BISNIS INTI (BARU - FASE 3)
+// =============================================================
+
+// Tabel untuk Cabang / Outlet
+model Cabang {
+  id      String @id @default(cuid())
+  name    String @unique
+  address String?
+
+  // Relasi: Satu Cabang punya banyak User (Kasir)
+  users     User[]
+  // Relasi: Satu Cabang punya banyak entri Stok
+  stok      StokPerCabang[]
+  // Relasi: Satu Cabang punya banyak Transaksi
+  transactions Transaction[]
+}
+
+// Tabel untuk Pemasok / Supplier
+model Supplier {
+  id      String  @id @default(cuid())
+  name    String  @unique
+  contact String?
+
+  // Relasi: Satu Supplier bisa memasok banyak Produk
+  products Product[]
+}
+
+// Tabel untuk Kategori Produk
+model Kategori {
+  id   String @id @default(cuid())
+  name String @unique
+
+  // Relasi: Satu Kategori bisa punya banyak Produk
+  products Product[]
+}
+
+// Tabel "Master" Produk (Info Umum)
+// Model Product LAMA DIHAPUS dan diganti ini
+model Product {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  sku         String  @unique // "KTP" produk, misal: "KAOS-001"
+  hargaBeli   Float   // Harga Modal / HPP (RAHASIA ADMIN)
+  hargaJual   Float   // Harga Jual ke Customer
+
+  // Relasi: Satu Produk punya satu Kategori
+  kategoriId  String?
+  kategori    Kategori? @relation(fields: [kategoriId], references: [id])
+
+  // Relasi: Satu Produk punya satu Supplier
+  supplierId  String?
+  supplier    Supplier? @relation(fields: [supplierId], references: [id])
+
+  // Relasi: Satu Produk bisa ada di banyak Transaksi
+  transactionItems TransactionItem[]
+  // Relasi: Satu Produk bisa punya banyak entri Stok (di berbagai cabang)
+  stokEntries      StokPerCabang[]
+}
+
+// Tabel "STOK" (Paling Penting)
+// Ini adalah join table yang menghubungkan Produk dan Cabang
+model StokPerCabang {
+  id         String @id @default(cuid())
+  quantity   Int    @default(0) // Jumlah stok produk ini di cabang ini
+  minStock   Int    @default(10) // Batas minimum untuk alert "Stok Hampir Habis"
+
+  // Relasi: Entri stok ini untuk Produk apa?
+  productId  String
+  product    Product @relation(fields: [productId], references: [id])
+
+  // Relasi: Entri stok ini ada di Cabang mana?
+  cabangId   String
+  cabang     Cabang  @relation(fields: [cabangId], references: [id])
+  
+  // Garansi: 1 produk hanya boleh punya 1 entri stok per cabang
+  @@unique([productId, cabangId])
+}
+
+// Tabel "Struk" / Header Transaksi
+// Model Order LAMA DIHAPUS dan diganti ini
+model Transaction {
+  id          String    @id @default(cuid())
+  createdAt   DateTime  @default(now())
+  total       Float     // Total nilai struk
+  metodeBayar String    // "CASH", "CARD", "EWALLET"
+
+  // Relasi: Transaksi ini dibuat oleh Kasir (User) siapa?
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+
+  // Relasi: Transaksi ini terjadi di Cabang mana?
+  cabangId    String
+  cabang      Cabang    @relation(fields: [cabangId], references: [id])
+
+  // Relasi: Apa saja barang yang dibeli di struk ini?
+  items       TransactionItem[]
+}
+
+// Tabel "Detail Struk" / Item yang Dibeli
+model TransactionItem {
+  id            String  @id @default(cuid())
+  quantity      Int
+  
+  // "Snapshot" harga saat transaksi (PENTING untuk Laporan)
+  hargaJual     Float   // Harga jual saat itu
+  hargaBeli     Float   // Harga modal/HPP saat itu
+  
+  // Relasi: Produk apa yang dibeli?
+  productId     String
+  product       Product @relation(fields: [productId], references: [id])
+
+  // Relasi: Item ini milik Struk (Transaction) mana?
+  transactionId String
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+}

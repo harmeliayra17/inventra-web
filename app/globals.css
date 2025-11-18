@@ -1,0 +1,14 @@
+/* app/globals.css */
+
+/* 1. Impor Tailwind (sintaks baru v4) */
+@import "tailwindcss";
+
+/* 2. Impor plugin forms (cara baru v4) */
+@plugin "@tailwindcss/forms";
+
+/* 3. Tambahkan warna maroon Anda (cara baru v4) */
+@theme {
+  --color-maroon: #630000;
+  --color-maroon-light: #8a0000;
+  --color-maroon-dark: #500000;
+}
